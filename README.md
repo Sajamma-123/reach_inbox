@@ -6,80 +6,198 @@ Engineered from first principles with **zero reliance on cron/node-cron**, zero 
 
 ---
 
-## 🌟 Key Features
+## 🗺️ Master Architecture Mindmap
 
-- **Google OAuth 2.0 Authentication**: Seamless user onboarding with secure session management via signed JWTs and HttpOnly cookies.
-- **ReachInbox Campaign Composer**:
-  - HTML & Plain text rich email drafting.
-  - Multi-source recipient ingest (drag-and-drop CSV / TXT parsing with live recipient count detection).
-  - Exact start date and time scheduling.
-  - Configurable inter-message delay (e.g., 2s, 5s pacing to prevent SMTP bursting).
-  - Configurable hourly sending limits.
-- **BullMQ Delayed Queue Architecture**: Delayed execution managed entirely within Redis Sorted Sets (`ZSET`). If the server halts or restarts, delayed jobs resume automatically without dropping a single email.
-- **Distributed Atomic Rate Limiter**:
-  - Redis-backed distributed sliding hourly counter.
-  - Executed via an **atomic Lua script** guaranteeing zero race conditions across distributed worker clusters.
-  - When hourly limits are reached, pending emails are automatically rescheduled into the next available hour window.
-- **Slack OAuth 2.0 & Real-Time Alerts**:
-  - Real-time Slack notifications dispatched to connected team channels when hourly limits are reached.
-  - Instant one-click test notification & disconnect controls.
-- **Elasticsearch Full-Text Search**:
-  - Sub-millisecond search across subject lines, bodies, and recipient addresses with fuzzy matching.
-  - Automatic fallback to PostgreSQL queries if the Elasticsearch node is offline.
-- **Live Monitoring Dashboard**:
-  - Integrated `@bull-board` UI (`/admin/queues`) to inspect delayed, active, waiting, completed, and failed jobs in real-time.
-- **Ethereal Email SMTP Integration**:
-  - Zero-config SMTP delivery with auto-generated test accounts and instant web preview URLs for every delivered message.
+```mermaid
+flowchart TD
+    %% Master System Mindmap
+    subgraph ClientTier["1. CLIENT TIER (React 18 + Tailwind CSS)"]
+        UI_Login["Google OAuth & Demo Landing"]
+        UI_Dash["Metrics Overview & Elasticsearch Search"]
+        UI_Compose["Campaign Composer (CSV Parsing & Live Count)"]
+        UI_Queue["Scheduled Queue (Delay Pacing & Countdowns)"]
+        UI_Sent["Delivered Emails (Ethereal Preview Links)"]
+        UI_Monitor["Bull-Board Real-Time Queue Monitor"]
+    end
+
+    subgraph GatewayTier["2. API GATEWAY & SECURITY TIER (Express.js)"]
+        GW_Auth["Google OAuth 2.0 & Session JWT Engine"]
+        GW_Multer["Streaming Multipart CSV/TXT Ingest"]
+        GW_Validation["Zod Request Validation & Sanitization"]
+        GW_Routes["REST Router (/api/auth, /api/emails, /api/slack, /api/search)"]
+        GW_Admin["Bull-Board Admin Router (/admin/queues)"]
+    end
+
+    subgraph StateTier["3. PERSISTENCE & DATA TIER (PostgreSQL 15 + Prisma)"]
+        DB_User["User & Identity Models"]
+        DB_Sender["Sender Profiles & Multi-Identity"]
+        DB_Email["Email Campaigns & Pacing Metadata"]
+        DB_Recip["Recipients & Status (PENDING, SENT, RATE_LIMITED)"]
+        DB_Job["EmailJobs (BullMQ Job IDs & Execution Timestamps)"]
+        DB_Attempt["DeliveryAttempts (SMTP Audit Logs)"]
+        DB_Slack["SlackConnection (Access Tokens & Webhook URLs)"]
+    end
+
+    subgraph QueueTier["4. QUEUE & DISTRIBUTED STATE (Redis 7 + BullMQ)"]
+        RD_ZSET["Redis Delayed Sorted Set (Microsecond Timer Heap)"]
+        RD_AOF["Append-Only File (Crash Persistence)"]
+        RD_Lua["Atomic Token Bucket Lua Rate Limiter"]
+    end
+
+    subgraph WorkerTier["5. WORKER CLUSTER & DISPATCH"]
+        WK_Worker["BullMQ Worker (Concurrency: 5, Throttle: 20/s)"]
+        WK_Idempotency["Database Deduplication Guard (Check Status != SENT)"]
+        WK_Limiter["Hourly Quota Evaluation (checkAndIncrement)"]
+        WK_Rescheduler["Auto-Rescheduler (Re-enqueue for Next Hour Window)"]
+        WK_SMTP["Ethereal SMTP Transporter (HTML/Plain Text)"]
+    end
+
+    subgraph ExternalTier["6. EXTERNAL INTEGRATIONS"]
+        EXT_Google["Google Identity OAuth Provider"]
+        EXT_Slack["Slack Webhook / Bot API (Quota Alerts)"]
+        EXT_ES["Elasticsearch 8 (Full-Text Search Index)"]
+        EXT_Ethereal["Ethereal Email Server (Rendered Web Previews)"]
+    end
+
+    %% Flow Connectors
+    ClientTier -->|"HTTP / REST API + Cookies"| GatewayTier
+    GatewayTier -->|"Prisma ORM"| StateTier
+    GatewayTier -->|"Enqueues Delayed Jobs"| QueueTier
+    QueueTier -->|"Picks Expired Timers"| WorkerTier
+    WorkerTier -->|"Idempotency & Audit"| StateTier
+    WorkerTier -->|"SMTP Dispatch"| EXT_Ethereal
+    WorkerTier -->|"Index Updates"| EXT_ES
+    WorkerTier -->|"Rate Limit Alerts"| EXT_Slack
+    GatewayTier -->|"OAuth Code Exchange"| EXT_Google
+```
 
 ---
 
-## 🏗️ System Design & Scenario Walkthroughs
+## 🔄 End-to-End Campaign Scheduling Lifecycle
 
-### Scenario 1: Server Restart & State Persistence
-- **Challenge**: If 500 emails are scheduled for tomorrow at 10:00 AM and the backend process crashes or restarts overnight, how do we guarantee jobs are not lost or duplicated?
-- **Architecture**:
-  - When a campaign is created, jobs are committed to PostgreSQL (`EmailJob` table with status `DELAYED`) and dispatched to BullMQ.
-  - BullMQ stores jobs in Redis sorted sets where the score is `Date.now() + delay`.
-  - Redis runs with **Append-Only File (`--appendonly yes`)** persistence.
-  - When the server or worker cluster restarts, BullMQ reconnects to Redis and immediately reads due jobs from the heap. No database re-scan or cron poller is ever needed.
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as User (Browser)
+    participant UI as React Dashboard
+    participant API as Express Gateway
+    participant DB as PostgreSQL (Prisma)
+    participant Queue as BullMQ (Redis ZSET)
+    participant ES as Elasticsearch
 
-### Scenario 2: High Volume (1,000+ Concurrent Emails)
-- **Challenge**: Scheduling 1,000 emails at approximately the same time without overwhelming the SMTP server or consuming unbounded server memory.
-- **Architecture**:
-  - The API streams and validates recipients, inserts database records in a single transaction, and pushes jobs with calculated staggered delays:
-    $$\text{Delay}_i = \text{InitialDelay} + (i \times \text{delaySeconds} \times 1000)$$
-  - BullMQ workers operate with a bounded concurrency pool (`concurrency: 5`) and a token limiter (`max: 20, duration: 1000ms`), enforcing safe, throttled SMTP transmission.
-
-### Scenario 3: Distributed Rate Limiting Across Multiple Workers
-- **Challenge**: When multiple workers process jobs in parallel, in-memory counters suffer from severe race conditions, causing rate limits to be breached.
-- **Architecture**:
-  - We use an atomic Redis Lua script:
-    ```lua
-    local current = tonumber(redis.call('get', KEYS[1]) or "0")
-    if current >= tonumber(ARGV[1]) then
-        return {0, current, redis.call('ttl', KEYS[1])}
-    else
-        local newCount = redis.call('incr', KEYS[1])
-        if newCount == 1 then redis.call('expire', KEYS[1], tonumber(ARGV[2])) end
-        return {1, newCount, redis.call('ttl', KEYS[1])}
+    User->>UI: Fills Subject, Body, Start Time (e.g., +5m), Delay (2s), Hourly Limit (100)
+    User->>UI: Uploads CSV file (e.g., 50 recipients)
+    UI->>UI: Stream-parses CSV in browser & displays: "Detected: 50 recipients"
+    User->>UI: Clicks "Schedule Campaign"
+    UI->>API: POST /api/emails/schedule (Multipart FormData)
+    
+    API->>API: Server-side CSV validation & email deduplication
+    API->>DB: Begin Transaction: Create Email & 50 EmailRecipient records
+    DB-->>API: Transaction Committed (Generated IDs)
+    
+    loop For each recipient i = 0 to 49
+        API->>API: Calculate Delay_i = (StartTime - Now) + (i * DelaySeconds * 1000)
+        API->>DB: Insert EmailJob (id: job_emailId_recipientId, status: 'DELAYED')
+        API->>Queue: emailQueue.add('send-email', payload, { delay: Delay_i, jobId })
+        API->>ES: Index document with status: 'SCHEDULED'
     end
-    ```
-  - If `allowed == 0`, the worker does not drop the job. It calculates the remaining TTL until the next hour, reschedules the job in BullMQ with `delay: resetInMs`, marks the recipient as `RATE_LIMITED`, and triggers an immediate Slack notification.
 
-### Scenario 4: Duplicate Prevention & SMTP Idempotency
-- **Challenge**: Networks fail and SMTP socket timeouts can occur *after* the email has been received by the mail transfer agent.
-- **Architecture**:
-  - Every BullMQ job is assigned a deterministic ID: `job_${emailId}_${recipientId}`.
-  - Before invoking SMTP, the worker queries PostgreSQL to check `recipient.status === 'SENT'`. If already sent, the job acks immediately without re-dispatching.
-  - Delivery outcomes are recorded in the `DeliveryAttempt` audit log.
-  - *Trade-off*: Pure exactly-once delivery over SMTP is fundamentally impossible due to the Two Generals' Problem if the connection drops between the SMTP `DATA` response and TCP ACK; our architecture achieves safe at-least-once with database deduplication guards.
+    API-->>UI: 201 Created (batchId, 50 scheduled, firstExecutionTime)
+    UI-->>User: Success toast & auto-redirects to "Scheduled Queue" tab
+```
 
-### Scenario 5: Slack Webhook & OAuth Alert Triggering
-- **Challenge**: Alert users in Slack whenever an hourly threshold is exceeded.
-- **Architecture**:
-  - Users authenticate via Slack OAuth (`/api/slack/connect`). Access tokens and incoming webhook URLs are stored in `SlackConnection`.
-  - When `rateLimiterService` detects `allowed === false`, it emits a `rate_limit_exceeded` event.
-  - `slackService` formats a Rich Block Kit alert with sender identity, limit count, and estimated time to resume, and posts it to the designated Slack channel.
+---
+
+## ⚡ BullMQ Worker Execution & Idempotency Pipeline
+
+```mermaid
+flowchart TD
+    TimerExpired["Redis ZSET: Delay Timer Expires"] --> PickJob["Worker Picks Job from Queue"]
+    PickJob --> CheckDB{"Query Database:\nIs recipient.status == 'SENT'?"}
+    
+    CheckDB -->|"Yes (Already Sent)"| DropJob["Duplicate Prevention:\nAck Job & Skip (No-Op)"]
+    
+    CheckDB -->|"No (Pending)"| RunLimiter["Execute Atomic Redis Lua Rate Limiter"]
+    
+    RunLimiter --> CheckLimit{"Hourly Limit\nExceeded?"}
+    
+    CheckLimit -->|"Yes (Limit Hit)"| RescheduleJob["1. Calculate TTL until next hour\n2. Re-enqueue job with delay = TTL\n3. Mark EmailJob = 'RESCHEDULED'\n4. Mark Recipient = 'RATE_LIMITED'"]
+    RescheduleJob --> AlertSlack["Dispatch Rich Block Kit Alert to Slack Channel"]
+    
+    CheckLimit -->|"No (Quota Available)"| SendSMTP["Dispatch Email via Ethereal SMTP Transporter"]
+    
+    SendSMTP --> SMTPResult{"SMTP Response"}
+    
+    SMTPResult -->|"Success"| UpdateSuccess["1. Mark Recipient = 'SENT'\n2. Mark EmailJob = 'COMPLETED'\n3. Save DeliveryAttempt (SUCCESS)\n4. Store Ethereal previewUrl\n5. Update Elasticsearch = 'SENT'"]
+    
+    SMTPResult -->|"Failure / Timeout"| UpdateFail["1. Record DeliveryAttempt (FAILURE)\n2. Mark EmailJob = 'FAILED'\n3. BullMQ Exponential Backoff Retry"]
+```
+
+---
+
+## 🛡️ Distributed Atomic Rate-Limiting Mindmap
+
+```mermaid
+flowchart LR
+    subgraph RequestContext["Worker Context"]
+        R_Sender["Sender: user@example.com"]
+        R_Limit["Hourly Limit: 50 emails/hr"]
+        R_Time["Current Time: Epoch Milliseconds"]
+    end
+
+    subgraph WindowCalc["Epoch Window Calculation"]
+        W_Hour["Epoch Hour = math.floor(Now / 3,600,000)"]
+        W_Key["Redis Key = 'ratelimit:sender:{id}:hour:{epochHour}'"]
+    end
+
+    subgraph LuaScript["Atomic Redis Lua Engine"]
+        L_Fetch["current = redis.call('get', key) or 0"]
+        L_Branch{"current >= Limit ?"}
+        L_Deny["Return: {0, current, ttl}"]
+        L_Allow["redis.call('incr', key)\nif 1st then redis.call('expire', key, 3600)\nReturn: {1, count, ttl}"]
+    end
+
+    subgraph Resolution["Action Taken"]
+        Act_Allow["ALLOWED:\nProceed to SMTP Transmission"]
+        Act_Deny["RATE LIMITED:\nReschedule Job + Alert Slack"]
+    end
+
+    RequestContext --> WindowCalc
+    WindowCalc --> LuaScript
+    L_Fetch --> L_Branch
+    L_Branch -->|"Exceeded"| L_Deny
+    L_Branch -->|"Under Limit"| L_Allow
+    L_Allow --> Act_Allow
+    L_Deny --> Act_Deny
+```
+
+---
+
+## 💥 Server Crash & Restart Resilience Mindmap
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Client as Client Application
+    participant Express as Express API Server
+    participant Redis as Redis 7 (Append-Only File)
+    participant Worker as BullMQ Worker Cluster
+    participant SMTP as Ethereal SMTP
+
+    Client->>Express: Schedules 500 emails for 10:00 AM tomorrow
+    Express->>Redis: Dispatches jobs to Redis ZSET with delay = 14 hours
+    Redis->>Redis: Persists commands to disk via AOF fsync
+    Note over Express,Worker: ⚡ UNEXPECTED CRASH / POWER OUTAGE / DEPLOYMENT REBOOT ⚡
+    Express--xExpress: Server process terminates
+    Worker--xWorker: Workers terminate
+    Note over Redis: Redis persists ZSET on disk. No memory or timer loss.
+    Note over Express,Worker: 🟢 SYSTEM RESTARTS 🟢
+    Express->>Redis: Express boots & reconnects
+    Worker->>Redis: BullMQ Worker starts and subscribes to reachinbox-email-queue
+    Redis-->>Worker: At 10:00 AM, delay timers expire; due jobs are emitted
+    Worker->>SMTP: Emails sent reliably with inter-message delay
+    Note over Client,SMTP: Result: Zero lost jobs, zero duplicated jobs!
+```
 
 ---
 
