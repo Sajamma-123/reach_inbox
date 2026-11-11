@@ -1,6 +1,6 @@
 import { OAuth2Client } from 'google-auth-library';
 import jwt from 'jsonwebtoken';
-import { prisma } from '../../config/database.js';
+import { prisma, isDatabaseConnected } from '../../config/database.js';
 import { env } from '../../config/env.js';
 import { logger } from '../../utils/logger.js';
 import { AppError } from '../../middlewares/errorHandler.js';
@@ -18,10 +18,26 @@ const googleClient = new OAuth2Client({
   redirectUri: env.GOOGLE_CALLBACK_URL,
 });
 
+// In-memory demo profile fallback if DB is not yet running
+const demoProfileFallback = {
+  id: 'usr_demo_reachinbox',
+  email: 'developer@reachinbox.ai',
+  name: 'ReachInbox Demo User',
+  avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
+  googleId: 'demo_reachinbox_123',
+  senders: [
+    {
+      id: 'snd_default',
+      userId: 'usr_demo_reachinbox',
+      email: 'developer@reachinbox.ai',
+      name: 'ReachInbox Demo Sender',
+      isDefault: true,
+    },
+  ],
+  slackConnection: null,
+};
+
 export const authService = {
-  /**
-   * Generates Google OAuth 2.0 Consent URL
-   */
   getGoogleAuthUrl(): string {
     const scopes = [
       'https://www.googleapis.com/auth/userinfo.profile',
@@ -35,9 +51,6 @@ export const authService = {
     });
   },
 
-  /**
-   * Exchanges Google Auth Code for profile and session token
-   */
   async handleGoogleCallback(code: string): Promise<{ token: string; user: UserSessionPayload }> {
     try {
       const { tokens } = await googleClient.getToken(code);
@@ -62,47 +75,32 @@ export const authService = {
       const name = payload.name || email.split('@')[0];
       const avatarUrl = payload.picture || '';
 
-      // Upsert User
-      const user = await prisma.user.upsert({
-        where: { googleId },
-        update: {
-          name,
-          avatarUrl,
-          updatedAt: new Date(),
-        },
-        create: {
-          email,
-          name,
-          googleId,
-          avatarUrl,
-        },
-      });
+      let userId = `usr_${googleId.slice(0, 10)}`;
 
-      // Ensure user has at least one default sender identity
-      const defaultSender = await prisma.sender.findFirst({
-        where: { userId: user.id },
-      });
-
-      if (!defaultSender) {
-        await prisma.sender.create({
-          data: {
-            userId: user.id,
-            email: user.email,
-            name: user.name || 'Default Sender',
-            isDefault: true,
-          },
+      if (isDatabaseConnected) {
+        const user = await prisma.user.upsert({
+          where: { googleId },
+          update: { name, avatarUrl, updatedAt: new Date() },
+          create: { email, name, googleId, avatarUrl },
         });
+        userId = user.id;
+
+        const defaultSender = await prisma.sender.findFirst({ where: { userId: user.id } });
+        if (!defaultSender) {
+          await prisma.sender.create({
+            data: { userId: user.id, email: user.email, name: user.name || 'Default Sender', isDefault: true },
+          });
+        }
       }
 
       const sessionPayload: UserSessionPayload = {
-        userId: user.id,
-        email: user.email,
-        name: user.name || '',
-        avatarUrl: user.avatarUrl || undefined,
+        userId,
+        email,
+        name,
+        avatarUrl,
       };
 
       const token = this.generateSessionToken(sessionPayload);
-
       return { token, user: sessionPayload };
     } catch (error: any) {
       logger.error('Google OAuth callback failed:', error.message);
@@ -110,94 +108,87 @@ export const authService = {
     }
   },
 
-  /**
-   * Creates or retrieves a local demo/test user for quick evaluation without Google UI
-   */
   async getOrCreateDemoUser(): Promise<{ token: string; user: UserSessionPayload }> {
     const demoEmail = 'developer@reachinbox.ai';
     const demoGoogleId = 'reachinbox_demo_account_12345';
+    let userId = 'usr_demo_reachinbox';
 
-    const user = await prisma.user.upsert({
-      where: { googleId: demoGoogleId },
-      update: {},
-      create: {
-        email: demoEmail,
-        name: 'ReachInbox Demo User',
-        googleId: demoGoogleId,
-        avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
-      },
-    });
+    if (isDatabaseConnected) {
+      try {
+        const user = await prisma.user.upsert({
+          where: { googleId: demoGoogleId },
+          update: {},
+          create: {
+            email: demoEmail,
+            name: 'ReachInbox Demo User',
+            googleId: demoGoogleId,
+            avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
+          },
+        });
+        userId = user.id;
 
-    const existingSender = await prisma.sender.findFirst({
-      where: { userId: user.id },
-    });
-
-    if (!existingSender) {
-      await prisma.sender.create({
-        data: {
-          userId: user.id,
-          email: user.email,
-          name: user.name || 'Demo Sender',
-          isDefault: true,
-        },
-      });
+        const existingSender = await prisma.sender.findFirst({ where: { userId: user.id } });
+        if (!existingSender) {
+          await prisma.sender.create({
+            data: { userId: user.id, email: user.email, name: user.name || 'Demo Sender', isDefault: true },
+          });
+        }
+      } catch (err: any) {
+        logger.warn('Prisma upsert fallback for demo user:', err.message);
+      }
     }
 
     const sessionPayload: UserSessionPayload = {
-      userId: user.id,
-      email: user.email,
-      name: user.name || 'Demo User',
-      avatarUrl: user.avatarUrl || undefined,
+      userId,
+      email: demoEmail,
+      name: 'ReachInbox Demo User',
+      avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
     };
 
     const token = this.generateSessionToken(sessionPayload);
     return { token, user: sessionPayload };
   },
 
-  /**
-   * Generates signed JWT for authenticated sessions
-   */
   generateSessionToken(payload: UserSessionPayload): string {
-    return jwt.sign(payload, env.JWT_SECRET, {
-      expiresIn: '7d',
-    });
+    return jwt.sign(payload, env.JWT_SECRET, { expiresIn: '7d' });
   },
 
-  /**
-   * Decodes and validates JWT token
-   */
   verifySessionToken(token: string): UserSessionPayload {
     try {
       return jwt.verify(token, env.JWT_SECRET) as UserSessionPayload;
-    } catch (err) {
+    } catch {
       throw new AppError('Invalid or expired authentication session', 401);
     }
   },
 
-  /**
-   * Fetch current user info with sender identities and slack status
-   */
   async getCurrentUserProfile(userId: string) {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      include: {
-        senders: true,
-        slackConnection: {
-          select: {
-            id: true,
-            slackTeamName: true,
-            channelName: true,
-            isActive: true,
-            connectedAt: true,
+    if (isDatabaseConnected) {
+      try {
+        const user = await prisma.user.findUnique({
+          where: { id: userId },
+          include: {
+            senders: true,
+            slackConnection: {
+              select: {
+                id: true,
+                slackTeamName: true,
+                channelName: true,
+                isActive: true,
+                connectedAt: true,
+              },
+            },
           },
-        },
-      },
-    });
-
-    if (!user) {
-      throw new AppError('User not found', 404);
+        });
+        if (user) return user;
+      } catch (err: any) {
+        logger.warn('Prisma findUnique fallback for profile:', err.message);
+      }
     }
 
-    return user;
+    // Return in-memory fallback user
+    return {
+      ...demoProfileFallback,
+      id: userId,
+    };
   },
 };

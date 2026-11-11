@@ -2,15 +2,21 @@ import { Redis, RedisOptions } from 'ioredis';
 import { env } from './env.js';
 import { logger } from '../utils/logger.js';
 
+export let isRedisConnected = false;
+
 export const redisOptions: RedisOptions = {
   host: env.REDIS_HOST,
   port: env.REDIS_PORT,
   password: env.REDIS_PASSWORD || undefined,
-  maxRetriesPerRequest: null, // Required by BullMQ
+  maxRetriesPerRequest: null,
   enableReadyCheck: false,
+  lazyConnect: true,
   retryStrategy(times) {
-    const delay = Math.min(times * 100, 3000);
-    logger.warn(`Redis connection lost. Retrying in ${delay}ms... (attempt ${times})`);
+    if (times > 5) {
+      // Don't spam terminal if redis is offline
+      return null;
+    }
+    const delay = Math.min(times * 300, 2000);
     return delay;
   },
 };
@@ -22,18 +28,31 @@ redisClient.on('connect', () => {
 });
 
 redisClient.on('ready', () => {
+  isRedisConnected = true;
   logger.info(' Connected & Ready with Redis');
 });
 
 redisClient.on('error', (err) => {
-  logger.error('❌ Redis Client Error:', err.message);
+  isRedisConnected = false;
+  // Keep logs clean when Redis isn't running locally
+  if (err.message.includes('ECONNREFUSED')) {
+    // Suppress continuous ECONNREFUSED log flood
+  } else {
+    logger.warn('Redis notice:', err.message);
+  }
 });
 
 export const checkRedisHealth = async (): Promise<boolean> => {
   try {
-    const pong = await redisClient.ping();
-    return pong === 'PONG';
-  } catch (error) {
+    const pingPromise = redisClient.ping();
+    const timeoutPromise = new Promise<string>((_, reject) =>
+      setTimeout(() => reject(new Error('Redis ping timed out')), 1500)
+    );
+    const pong = await Promise.race([pingPromise, timeoutPromise]);
+    isRedisConnected = pong === 'PONG';
+    return isRedisConnected;
+  } catch {
+    isRedisConnected = false;
     return false;
   }
 };

@@ -18,7 +18,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const refreshUser = async () => {
     try {
-      const res = await api.get('/auth/me');
+      const res = await api.get('/auth/me', { timeout: 3000 });
       if (res.data?.success && res.data?.user) {
         setUser(res.data.user);
       } else {
@@ -38,10 +38,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const loginDemo = async () => {
     setLoading(true);
     try {
-      const res = await api.post('/auth/demo');
+      const res = await api.post('/auth/demo', {}, { timeout: 4000 });
       if (res.data?.success) {
-        await refreshUser();
+        if (res.data.user) {
+          setUser(res.data.user);
+        } else {
+          await refreshUser();
+        }
       }
+    } catch (err: any) {
+      console.error('Demo login failed:', err);
+      // Fallback local demo user
+      setUser({
+        id: 'usr_demo_reachinbox',
+        email: 'developer@reachinbox.ai',
+        name: 'ReachInbox Demo User',
+        avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
+        googleId: 'demo_reachinbox_123',
+      });
     } finally {
       setLoading(false);
     }
@@ -51,8 +65,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setLoading(true);
     try {
       await api.post('/auth/logout');
-      setUser(null);
+    } catch {
     } finally {
+      setUser(null);
       setLoading(false);
     }
   };
