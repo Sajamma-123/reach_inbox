@@ -15,7 +15,6 @@ export const ComposeModal: React.FC<ComposeModalProps> = ({ isOpen, onClose, onS
   const [file, setFile] = useState<File | null>(null);
   const [detectedCount, setDetectedCount] = useState<number>(0);
   const [scheduledAt, setScheduledAt] = useState(() => {
-    // Default to current time + 2 minutes
     const date = new Date(Date.now() + 2 * 60 * 1000);
     date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
     return date.toISOString().slice(0, 16);
@@ -66,15 +65,15 @@ export const ComposeModal: React.FC<ComposeModalProps> = ({ isOpen, onClose, onS
     setError(null);
 
     if (!subject.trim()) {
-      setError('Please provide an email subject.');
+      setError('Subject is required.');
       return;
     }
     if (!body.trim()) {
-      setError('Please provide email body content.');
+      setError('Body content is required.');
       return;
     }
     if (detectedCount === 0 && !file) {
-      setError('Please enter at least one recipient email address or upload a CSV file.');
+      setError('Please add at least one recipient or upload a file.');
       return;
     }
 
@@ -120,14 +119,11 @@ export const ComposeModal: React.FC<ComposeModalProps> = ({ isOpen, onClose, onS
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
       <div className="bg-[#111622] border border-slate-800 rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
         {/* Modal Header */}
-        <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/40">
-          <div>
-            <h2 className="text-lg font-bold text-white">Compose Email Campaign</h2>
-            <p className="text-xs text-slate-400">Configure scheduling, delay pacing, and hourly rate limits</p>
-          </div>
+        <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
+          <h2 className="text-base font-semibold text-white">Compose Campaign</h2>
           <button
             onClick={onClose}
             className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
@@ -147,26 +143,26 @@ export const ComposeModal: React.FC<ComposeModalProps> = ({ isOpen, onClose, onS
 
           {/* Subject */}
           <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1.5">Subject Line</label>
+            <label className="block text-xs font-semibold text-slate-300 mb-1.5">Subject</label>
             <input
               type="text"
               value={subject}
               onChange={(e) => setSubject(e.target.value)}
-              placeholder="e.g. Exclusive Invitation to Join ReachInbox Beta"
-              className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700/80 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition-all"
+              placeholder="Campaign subject"
+              className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700/80 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-brand-500"
               required
             />
           </div>
 
           {/* Body */}
           <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1.5">Email Body (HTML or Plain Text)</label>
+            <label className="block text-xs font-semibold text-slate-300 mb-1.5">Body</label>
             <textarea
               rows={5}
               value={body}
               onChange={(e) => setBody(e.target.value)}
-              placeholder="Hello {{name}},&#10;&#10;We are delighted to welcome you to our upcoming product release..."
-              className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700/80 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition-all font-mono text-xs leading-relaxed"
+              placeholder="Write your email content..."
+              className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700/80 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-brand-500 font-mono text-xs"
               required
             />
           </div>
@@ -174,39 +170,39 @@ export const ComposeModal: React.FC<ComposeModalProps> = ({ isOpen, onClose, onS
           {/* Recipients Section */}
           <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 space-y-3">
             <div className="flex items-center justify-between">
-              <label className="text-xs font-semibold text-slate-300">Recipients (CSV Upload or Manual)</label>
-              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-brand-500/10 border border-brand-500/20 text-brand-400 text-xs font-medium">
-                <Check className="w-3.5 h-3.5" />
-                <span>Detected: {detectedCount} recipient{detectedCount === 1 ? '' : 's'}</span>
+              <label className="text-xs font-semibold text-slate-300">Recipients</label>
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-800 text-slate-300 text-xs font-medium">
+                <Check className="w-3.5 h-3.5 text-brand-400" />
+                <span>{detectedCount} recipient{detectedCount === 1 ? '' : 's'}</span>
               </div>
             </div>
 
-            {/* Drag & drop file input */}
-            <div className="relative border-2 border-dashed border-slate-700 hover:border-brand-500/60 rounded-xl p-4 text-center transition-all bg-slate-950/40">
+            {/* File Upload */}
+            <div className="relative border border-dashed border-slate-700 hover:border-slate-500 rounded-xl p-4 text-center transition-all bg-slate-950/40">
               <input
                 type="file"
                 accept=".csv,.txt"
                 onChange={handleFileChange}
                 className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
               />
-              <Upload className="w-6 h-6 text-slate-400 mx-auto mb-1.5" />
-              <p className="text-xs font-medium text-slate-200">
-                {file ? file.name : 'Upload CSV or TXT file of recipient emails'}
+              <Upload className="w-5 h-5 text-slate-400 mx-auto mb-1.5" />
+              <p className="text-xs font-medium text-slate-300">
+                {file ? file.name : 'Upload CSV or TXT file'}
               </p>
-              <p className="text-[11px] text-slate-500 mt-0.5">Supports standard CSV with 'email' column or plain text list</p>
+              <p className="text-[11px] text-slate-500 mt-0.5">Supports CSV with email column or plain text list</p>
             </div>
 
-            {/* Manual text area fallback */}
+            {/* Manual Textarea */}
             <textarea
               rows={2}
               value={manualRecipients}
               onChange={(e) => handleManualChange(e.target.value)}
-              placeholder="Or paste comma/newline separated emails: alex@example.com, sarah@company.org"
+              placeholder="Or enter emails separated by commas or newlines"
               className="w-full px-3 py-2 rounded-lg bg-slate-950/80 border border-slate-800 text-xs text-slate-300 placeholder-slate-600 focus:outline-none focus:border-brand-500"
             />
           </div>
 
-          {/* Schedule & Throttling Config */}
+          {/* Schedule Config */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1 flex items-center gap-1.5">
@@ -224,8 +220,8 @@ export const ComposeModal: React.FC<ComposeModalProps> = ({ isOpen, onClose, onS
 
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1 flex items-center gap-1.5">
-                <Clock className="w-3.5 h-3.5 text-amber-400" />
-                <span>Delay Between (sec)</span>
+                <Clock className="w-3.5 h-3.5 text-slate-400" />
+                <span>Delay (seconds)</span>
               </label>
               <input
                 type="number"
@@ -240,7 +236,7 @@ export const ComposeModal: React.FC<ComposeModalProps> = ({ isOpen, onClose, onS
 
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1 flex items-center gap-1.5">
-                <Gauge className="w-3.5 h-3.5 text-indigo-400" />
+                <Gauge className="w-3.5 h-3.5 text-slate-400" />
                 <span>Hourly Limit</span>
               </label>
               <input
@@ -268,10 +264,10 @@ export const ComposeModal: React.FC<ComposeModalProps> = ({ isOpen, onClose, onS
             <button
               type="submit"
               disabled={loading}
-              className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-brand-600 to-emerald-500 hover:from-brand-500 hover:to-emerald-400 text-white text-xs font-semibold shadow-lg shadow-brand-500/20 flex items-center gap-2 transition-all disabled:opacity-50"
+              className="px-6 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-500 text-white text-xs font-semibold shadow-md flex items-center gap-2 transition-all disabled:opacity-50"
             >
               {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-              <span>{loading ? 'Scheduling via BullMQ...' : 'Schedule Campaign'}</span>
+              <span>{loading ? 'Scheduling...' : 'Schedule Campaign'}</span>
             </button>
           </div>
         </form>

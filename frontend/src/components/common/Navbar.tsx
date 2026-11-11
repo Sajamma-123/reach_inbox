@@ -6,30 +6,19 @@ export const Navbar: React.FC = () => {
   const { user, logout } = useAuth();
 
   return (
-    <header className="h-16 border-b border-slate-800 bg-[#0f141e]/90 backdrop-blur-md px-6 flex items-center justify-between sticky top-0 z-30">
+    <header className="h-16 border-b border-slate-800 bg-[#0f141e] px-6 flex items-center justify-between sticky top-0 z-30">
       <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-brand-600 to-emerald-400 flex items-center justify-center shadow-lg shadow-brand-500/20">
+        <div className="w-9 h-9 rounded-xl bg-brand-600 flex items-center justify-center">
           <Mail className="w-5 h-5 text-white" />
         </div>
-        <div>
-          <h1 className="text-lg font-bold tracking-tight text-white flex items-center gap-2">
-            Reach<span className="text-brand-500">Inbox</span>
-            <span className="text-[10px] uppercase font-semibold px-2 py-0.5 rounded-full bg-brand-500/10 text-brand-400 border border-brand-500/20">
-              Scheduler Pro
-            </span>
-          </h1>
-          <p className="text-xs text-slate-400">BullMQ & Redis Distributed Engine</p>
-        </div>
+        <span className="text-lg font-bold tracking-tight text-white">
+          Reach<span className="text-brand-500">Inbox</span>
+        </span>
       </div>
 
       <div className="flex items-center gap-4">
-        <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-xs text-slate-300">
-          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-          <span>Ethereal SMTP Ready</span>
-        </div>
-
         {user && (
-          <div className="flex items-center gap-3 pl-4 border-l border-slate-800">
+          <div className="flex items-center gap-3">
             <div className="flex items-center gap-2.5">
               {user.avatarUrl ? (
                 <img
@@ -38,7 +27,7 @@ export const Navbar: React.FC = () => {
                   className="w-8 h-8 rounded-full border border-slate-700 object-cover"
                 />
               ) : (
-                <div className="w-8 h-8 rounded-full bg-brand-600 flex items-center justify-center text-xs font-bold text-white">
+                <div className="w-8 h-8 rounded-full bg-brand-600 flex items-center justify-center text-xs font-semibold text-white">
                   {(user.name || user.email)[0].toUpperCase()}
                 </div>
               )}
@@ -51,7 +40,7 @@ export const Navbar: React.FC = () => {
             <button
               onClick={() => logout()}
               title="Logout"
-              className="p-2 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+              className="p-2 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-slate-800 transition-colors"
             >
               <LogOut className="w-4 h-4" />
             </button>

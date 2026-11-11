@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { Mail, ShieldCheck, Zap, Server, Loader2, Play } from 'lucide-react';
+import { Mail, Loader2, Play } from 'lucide-react';
 
 export const LoginPage: React.FC = () => {
   const { loginDemo } = useAuth();
@@ -20,30 +20,26 @@ export const LoginPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#070a0f] flex flex-col justify-center items-center px-4 relative overflow-hidden">
-      {/* Background glow effects */}
-      <div className="absolute top-1/4 -left-32 w-96 h-96 bg-brand-500/10 rounded-full blur-[120px] pointer-events-none" />
-      <div className="absolute bottom-1/4 -right-32 w-96 h-96 bg-emerald-500/10 rounded-full blur-[120px] pointer-events-none" />
-
-      <div className="w-full max-w-md bg-[#0f141e]/90 border border-slate-800 rounded-3xl p-8 shadow-2xl backdrop-blur-xl relative z-10 text-center">
+    <div className="min-h-screen bg-[#070a0f] flex flex-col justify-center items-center px-4">
+      <div className="w-full max-w-sm bg-[#0f141e] border border-slate-800 rounded-3xl p-8 shadow-2xl text-center">
         {/* Brand header */}
-        <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-brand-600 to-emerald-400 mx-auto flex items-center justify-center shadow-xl shadow-brand-500/20 mb-6">
-          <Mail className="w-7 h-7 text-white" />
+        <div className="w-12 h-12 rounded-2xl bg-brand-600 mx-auto flex items-center justify-center mb-5">
+          <Mail className="w-6 h-6 text-white" />
         </div>
 
-        <h1 className="text-2xl font-bold tracking-tight text-white mb-2">
-          Reach<span className="text-brand-500">Inbox</span> Scheduler
+        <h1 className="text-xl font-bold tracking-tight text-white mb-1.5">
+          Reach<span className="text-brand-500">Inbox</span>
         </h1>
-        <p className="text-xs text-slate-400 mb-8 max-w-xs mx-auto">
-          Production-grade Full-Stack Email Job Scheduler with BullMQ, Redis Distributed Rate Limiting & Slack Notifications
+        <p className="text-xs text-slate-400 mb-8">
+          Sign in to manage and schedule your email campaigns.
         </p>
 
         {/* Action Buttons */}
-        <div className="space-y-3 mb-8">
+        <div className="space-y-3">
           {/* Google OAuth Button */}
           <button
             onClick={handleGoogleLogin}
-            className="w-full py-3.5 px-4 rounded-xl bg-white hover:bg-slate-100 text-slate-900 font-semibold text-sm shadow-md flex items-center justify-center gap-3 transition-all hover:scale-[1.01] active:scale-[0.99]"
+            className="w-full py-3 px-4 rounded-xl bg-white hover:bg-slate-100 text-slate-900 font-semibold text-xs shadow-md flex items-center justify-center gap-3 transition-all active:scale-[0.99]"
           >
             <svg className="w-4 h-4" viewBox="0 0 24 24">
               <path
@@ -70,34 +66,15 @@ export const LoginPage: React.FC = () => {
           <button
             onClick={handleDemoLogin}
             disabled={demoLoading}
-            className="w-full py-3.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700/80 border border-slate-700 text-slate-200 font-semibold text-sm flex items-center justify-center gap-2 transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50"
+            className="w-full py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-700/80 border border-slate-700 text-slate-200 font-semibold text-xs flex items-center justify-center gap-2 transition-all active:scale-[0.99] disabled:opacity-50"
           >
             {demoLoading ? (
-              <Loader2 className="w-4 h-4 animate-spin text-brand-400" />
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-brand-400" />
             ) : (
-              <Play className="w-4 h-4 text-brand-400 fill-brand-400" />
+              <Play className="w-3.5 h-3.5 text-brand-400 fill-brand-400" />
             )}
-            <span>{demoLoading ? 'Logging In...' : 'Quick Demo Login (One-Click)'}</span>
+            <span>{demoLoading ? 'Logging In...' : 'Quick Demo Login'}</span>
           </button>
-        </div>
-
-        {/* Feature Highlights */}
-        <div className="pt-6 border-t border-slate-800 grid grid-cols-3 gap-2 text-left">
-          <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800/80">
-            <Zap className="w-4 h-4 text-amber-400 mb-1" />
-            <p className="text-[11px] font-semibold text-slate-200">BullMQ Delay</p>
-            <p className="text-[10px] text-slate-400">Zero cron dependency</p>
-          </div>
-          <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800/80">
-            <ShieldCheck className="w-4 h-4 text-brand-400 mb-1" />
-            <p className="text-[11px] font-semibold text-slate-200">Redis Limiter</p>
-            <p className="text-[10px] text-slate-400">Atomic Lua scripts</p>
-          </div>
-          <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800/80">
-            <Server className="w-4 h-4 text-indigo-400 mb-1" />
-            <p className="text-[11px] font-semibold text-slate-200">Restart Proof</p>
-            <p className="text-[10px] text-slate-400">Redis AOF persistence</p>
-          </div>
         </div>
       </div>
     </div>

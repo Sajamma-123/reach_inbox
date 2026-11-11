@@ -28,12 +28,7 @@ export const SentPage: React.FC = () => {
   return (
     <div className="p-8 space-y-6 max-w-7xl mx-auto">
       <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold text-white tracking-tight">Delivered Emails</h2>
-          <p className="text-xs text-slate-400 mt-1">
-            Audited history of SMTP email deliveries with direct links to view messages on Ethereal Email.
-          </p>
-        </div>
+        <h2 className="text-xl font-bold text-white tracking-tight">Delivered Emails</h2>
 
         <button
           onClick={fetchJobs}
@@ -51,9 +46,9 @@ export const SentPage: React.FC = () => {
         ) : jobs.length === 0 ? (
           <div className="py-12 text-center space-y-3">
             <Mail className="w-10 h-10 text-slate-600 mx-auto" />
-            <p className="text-sm font-medium text-slate-300">No sent emails recorded yet</p>
+            <p className="text-sm font-medium text-slate-300">No delivered emails yet</p>
             <p className="text-xs text-slate-500 max-w-sm mx-auto">
-              Emails scheduled via BullMQ will show up here after being processed by the worker.
+              Delivered emails will appear here with preview links.
             </p>
           </div>
         ) : (
@@ -65,7 +60,7 @@ export const SentPage: React.FC = () => {
                   <th className="py-3 px-4">Subject</th>
                   <th className="py-3 px-4">Sender</th>
                   <th className="py-3 px-4">Delivered At</th>
-                  <th className="py-3 px-4">Ethereal SMTP Preview</th>
+                  <th className="py-3 px-4">Preview</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60 text-slate-300">
@@ -91,7 +86,7 @@ export const SentPage: React.FC = () => {
                           rel="noopener noreferrer"
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-500/10 hover:bg-brand-500/20 text-brand-400 border border-brand-500/20 text-xs font-semibold transition-colors"
                         >
-                          <span>Open in Ethereal</span>
+                          <span>View Email</span>
                           <ExternalLink className="w-3 h-3" />
                         </a>
                       ) : (

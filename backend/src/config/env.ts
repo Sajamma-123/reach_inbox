@@ -1,9 +1,20 @@
 import dotenv from 'dotenv';
 import path from 'path';
+import fs from 'fs';
 import { z } from 'zod';
 
-// Load environment variables from backend/.env or root .env
-dotenv.config({ path: path.resolve(process.cwd(), '.env') });
+// Load environment variables from all possible locations (root or backend)
+const possiblePaths = [
+  path.resolve(process.cwd(), '.env'),
+  path.resolve(process.cwd(), 'backend', '.env'),
+  path.resolve(process.cwd(), '..', '.env'),
+];
+
+for (const p of possiblePaths) {
+  if (fs.existsSync(p)) {
+    dotenv.config({ path: p });
+  }
+}
 
 const envSchema = z.object({
   PORT: z.string().default('5000').transform((val) => parseInt(val, 10)),
@@ -22,8 +33,8 @@ const envSchema = z.object({
   JWT_SECRET: z.string().default('super_secret_jwt_key_reachinbox_2026_change_in_production'),
   SESSION_SECRET: z.string().default('session_signing_secret_reachinbox_2026'),
 
-  GOOGLE_CLIENT_ID: z.string().optional().default(''),
-  GOOGLE_CLIENT_SECRET: z.string().optional().default(''),
+  GOOGLE_CLIENT_ID: z.string().default(process.env.GOOGLE_CLIENT_ID || ''),
+  GOOGLE_CLIENT_SECRET: z.string().default(process.env.GOOGLE_CLIENT_SECRET || ''),
   GOOGLE_CALLBACK_URL: z.string().default('http://localhost:5000/api/auth/google/callback'),
 
   SLACK_CLIENT_ID: z.string().optional().default(''),
