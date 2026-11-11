@@ -1,0 +1,168 @@
+// Prisma Schema for ReachInbox Email Scheduler
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum EmailStatus {
+  DRAFT
+  SCHEDULED
+  PROCESSING
+  COMPLETED
+  CANCELLED
+}
+
+enum RecipientStatus {
+  PENDING
+  SENT
+  FAILED
+  RATE_LIMITED
+}
+
+enum JobStatus {
+  WAITING
+  DELAYED
+  ACTIVE
+  COMPLETED
+  FAILED
+  RESCHEDULED
+}
+
+enum DeliveryStatus {
+  SUCCESS
+  FAILURE
+}
+
+model User {
+  id              String            @id @default(cuid())
+  email           String            @unique
+  name            String?
+  avatarUrl       String?
+  googleId        String            @unique
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  senders         Sender[]
+  emails          Email[]
+  slackConnection SlackConnection?
+
+  @@index([email])
+  @@index([googleId])
+}
+
+model Sender {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  email     String
+  name      String
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  emails    Email[]
+
+  @@unique([userId, email])
+  @@index([userId])
+}
+
+model Email {
+  id           String       @id @default(cuid())
+  userId       String
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  senderId     String
+  sender       Sender       @relation(fields: [senderId], references: [id], onDelete: Restrict)
+  subject      String
+  body         String       @db.Text
+  scheduledAt  DateTime
+  delaySeconds Int          @default(2)
+  hourlyLimit  Int          @default(100)
+  status       EmailStatus  @default(SCHEDULED)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  recipients   EmailRecipient[]
+  jobs         EmailJob[]
+
+  @@index([userId])
+  @@index([senderId])
+  @@index([status])
+}
+
+model EmailRecipient {
+  id             String          @id @default(cuid())
+  emailId        String
+  email          Email           @relation(fields: [emailId], references: [id], onDelete: Cascade)
+  recipientEmail String
+  status         RecipientStatus @default(PENDING)
+  sequenceIndex  Int             @default(0)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  jobs           EmailJob[]
+
+  @@index([emailId])
+  @@index([recipientEmail])
+  @@index([status])
+}
+
+model EmailJob {
+  id                   String         @id // Explicitly matches BullMQ jobId
+  emailId              String
+  email                Email          @relation(fields: [emailId], references: [id], onDelete: Cascade)
+  recipientId          String
+  recipient            EmailRecipient @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+  status               JobStatus      @default(DELAYED)
+  plannedExecutionTime DateTime
+  executedAt           DateTime?
+  retryCount           Int            @default(0)
+  etherealMessageId    String?
+  etherealPreviewUrl   String?
+  failureReason        String?        @db.Text
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+
+  deliveryAttempts     DeliveryAttempt[]
+
+  @@index([emailId])
+  @@index([recipientId])
+  @@index([status])
+  @@index([plannedExecutionTime])
+}
+
+model DeliveryAttempt {
+  id            String         @id @default(cuid())
+  jobId         String
+  job           EmailJob       @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  attemptNumber Int
+  status        DeliveryStatus
+  smtpResponse  String?        @db.Text
+  errorMessage  String?        @db.Text
+  attemptedAt   DateTime       @default(now())
+
+  @@index([jobId])
+  @@index([status])
+}
+
+model SlackConnection {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  slackTeamId   String
+  slackTeamName String?
+  channelId     String?
+  channelName   String?
+  accessToken   String   @db.Text
+  webhookUrl    String?  @db.Text
+  isActive      Boolean  @default(true)
+  connectedAt   DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([userId])
+  @@index([slackTeamId])
+}
