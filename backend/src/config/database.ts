@@ -23,16 +23,15 @@ export const connectDatabase = async (): Promise<boolean> => {
   try {
     const connectPromise = prisma.$connect();
     const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('Connection timed out (2000ms)')), 2000)
+      setTimeout(() => reject(new Error('Connection timed out (6000ms)')), 6000)
     );
     await Promise.race([connectPromise, timeoutPromise]);
     isDatabaseConnected = true;
-    logger.info(' Connected to PostgreSQL via Prisma ORM');
+    logger.info(' Successfully connected to PostgreSQL (REACH INbOX) via Prisma ORM');
     return true;
   } catch (error: any) {
     isDatabaseConnected = false;
-    logger.warn(`⚠️ PostgreSQL not reachable on localhost:5432. Local mock/in-memory fallback active.`);
-    logger.warn(`   Run 'docker compose up -d' to start PostgreSQL, Redis, and Elasticsearch.`);
+    logger.warn(`⚠️ PostgreSQL connection issue: ${error.message}`);
     return false;
   }
 };

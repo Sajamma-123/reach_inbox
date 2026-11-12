@@ -201,18 +201,20 @@ sequenceDiagram
 
 ---
 
-## 🗄️ Database Entity Relationship (ER)
+## 🗄️ Database Entity Relationship (ER) & Table Mapping
 
 ```
 User (1) ────────── (N) Sender
-User (1) ────────── (N) Email
+User (1) ────────── (N) email_data (Email model)
 User (1) ────────── (1) SlackConnection
-Sender (1) ──────── (N) Email
-Email (1) ───────── (N) EmailRecipient
-Email (1) ───────── (N) EmailJob
+Sender (1) ──────── (N) email_data (Email model)
+email_data (1) ──── (N) EmailRecipient
+email_data (1) ──── (N) EmailJob
 EmailRecipient (1) ─ (N) EmailJob
 EmailJob (1) ────── (N) DeliveryAttempt
 ```
+
+> **Note on Table Mapping**: The primary campaign model `Email` is mapped directly to table `email_data` in PostgreSQL via Prisma (`@@map("email_data")`), allowing direct SQL queries in pgAdmin (`SELECT * FROM "email_data";`) or ORM operations seamlessly.
 
 ---
 
@@ -220,7 +222,7 @@ EmailJob (1) ────── (N) DeliveryAttempt
 
 ### Prerequisites
 - Node.js 18+ & npm 10+
-- Docker & Docker Compose (or local PostgreSQL 15 & Redis 7)
+- PostgreSQL 15+ (Local or Docker) & Redis 7
 
 ### 1. Clone & Install Dependencies
 ```bash
@@ -230,36 +232,38 @@ npm install
 ```
 
 ### 2. Configure Environment Variables
-Copy `.env.example` to `backend/.env`:
-```bash
-cp .env.example backend/.env
-```
-Ensure your Google OAuth credentials are set:
+Configure `.env` at root:
 ```ini
+PORT=5000
+NODE_ENV=development
+CLIENT_URL=http://localhost:5173
+
+# PostgreSQL connection (e.g. database REACH INbOX)
+DATABASE_URL="postgresql://postgres:12345@localhost:5432/REACH%20INbOX?schema=public"
+
+# Redis & BullMQ
+REDIS_HOST=localhost
+REDIS_PORT=6379
+
+# Google OAuth
 GOOGLE_CLIENT_ID=your_google_client_id.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=your_google_client_secret
 GOOGLE_CALLBACK_URL=http://localhost:5000/api/auth/google/callback
+
+# Slack Notifications (OAuth or Incoming Webhook)
+SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
 ```
 
-### 3. Start Infrastructure (Docker)
-```bash
-docker compose up -d
-```
-This starts:
-- **PostgreSQL 15** on port `5432`
-- **Redis 7 (AOF enabled)** on port `6379`
-- **Elasticsearch 8** on port `9200`
-
-### 4. Database Setup & Prisma Generation
+### 3. Database Setup & Prisma Sync
 ```bash
 npm run prisma:generate --workspace=backend
 npm run prisma:push --workspace=backend
 ```
 
-### 5. Run the Application
+### 4. Run the Application
 In two terminal windows:
 
-**Backend Server & BullMQ Worker:**
+**Backend Server & Worker:**
 ```bash
 npm run backend:dev
 ```
@@ -277,12 +281,12 @@ npm run frontend:dev
 ## 🧪 Testing Scenarios & Verification
 
 ### Scenario Test 1: Compose with CSV & Delayed Pacing
-1. Log in via **Sign in with Google** or click **Quick Demo Login**.
-2. Click **Compose Campaign**.
-3. Upload a sample CSV containing 10 email addresses.
-4. Set Start Time = Current Time + 1 minute.
-5. Set Delay = 3 seconds, Hourly Limit = 50.
-6. Click **Schedule Campaign**.
+1. Log in via **Sign in with Google** with your authenticated Google account.
+2. Click **New Campaign**.
+3. Upload a sample CSV containing email addresses (or type them manually).
+4. Set Scheduled Start, Delay (e.g. 2s), and Hourly Limit (e.g. 50).
+5. Click **Schedule Campaign**. All records are persisted to PostgreSQL table `email_data`.
+6. Inspect in pgAdmin: `SELECT * FROM "email_data";` to verify records in real-time.
 7. Navigate to **Scheduled Queue** and observe the staggered execution timestamps.
 8. When due, watch jobs transition to **Sent & Delivered** and click **Open in Ethereal** to inspect the live delivered email.
 

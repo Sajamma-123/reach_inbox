@@ -11,6 +11,7 @@ router.get('/callback', slackController.handleCallback);
 
 // Slack Status & Management
 router.get('/status', requireAuth, slackController.getStatus);
+router.post('/webhook', requireAuth, slackController.saveWebhook);
 router.post('/disconnect', requireAuth, slackController.disconnect);
 router.post('/test', requireAuth, slackController.sendTestNotification);
 

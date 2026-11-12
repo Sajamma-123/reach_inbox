@@ -96,12 +96,24 @@ export class SlackService {
     }
   ): Promise<boolean> {
     try {
-      const connection = await prisma.slackConnection.findUnique({
-        where: { userId },
-      });
+      let webhookUrl = env.SLACK_WEBHOOK_URL || '';
+      let accessToken = '';
+      let channelId = '';
 
-      if (!connection || !connection.isActive) {
-        logger.debug(`User ${userId} does not have an active Slack connection. Skipping notification.`);
+      if (userId) {
+        const connection = await prisma.slackConnection.findUnique({
+          where: { userId },
+        });
+
+        if (connection && connection.isActive) {
+          if (connection.webhookUrl) webhookUrl = connection.webhookUrl;
+          if (connection.accessToken) accessToken = connection.accessToken;
+          if (connection.channelId) channelId = connection.channelId;
+        }
+      }
+
+      if (!webhookUrl && (!accessToken || !channelId)) {
+        logger.debug(`No active Slack connection or webhook configured. Skipping notification.`);
         return false;
       }
 
@@ -109,8 +121,8 @@ export class SlackService {
       const text = `🚨 *ReachInbox Rate Limit Alert*: Hourly sending limit reached for \`${details.senderEmail}\` (${details.currentCount}/${details.hourlyLimit} emails sent). Pending jobs are paused and rescheduled to resume in ~${resetMinutes} minutes.`;
 
       // 1. Try sending via Webhook URL
-      if (connection.webhookUrl) {
-        await axios.post(connection.webhookUrl, {
+      if (webhookUrl) {
+        await axios.post(webhookUrl, {
           text,
           blocks: [
             {
@@ -143,18 +155,18 @@ export class SlackService {
             },
           ],
         });
-        logger.info(`📢 Slack rate limit alert sent via Webhook to user ${userId}`);
+        logger.info(`📢 Slack rate limit alert sent via Webhook to ${webhookUrl.slice(0, 30)}...`);
         return true;
       }
 
       // 2. Try sending via WebClient Bot token
-      if (connection.accessToken && connection.channelId) {
-        const client = new WebClient(connection.accessToken);
+      if (accessToken && channelId) {
+        const client = new WebClient(accessToken);
         await client.chat.postMessage({
-          channel: connection.channelId,
+          channel: channelId,
           text,
         });
-        logger.info(`📢 Slack rate limit alert sent via Bot API to channel ${connection.channelId}`);
+        logger.info(`📢 Slack rate limit alert sent via Bot API to channel ${channelId}`);
         return true;
       }
 
@@ -163,6 +175,35 @@ export class SlackService {
       logger.error('Failed to dispatch Slack rate limit notification:', error.message);
       return false;
     }
+  }
+
+  /**
+   * Saves an incoming webhook URL directly for user
+   */
+  async saveWebhook(userId: string, webhookUrl: string, channelName = '#general') {
+    const connection = await prisma.slackConnection.upsert({
+      where: { userId },
+      update: {
+        webhookUrl,
+        channelName,
+        slackTeamId: 'webhook-direct',
+        slackTeamName: 'Slack Webhook',
+        accessToken: '',
+        isActive: true,
+        updatedAt: new Date(),
+      },
+      create: {
+        userId,
+        webhookUrl,
+        channelName,
+        slackTeamId: 'webhook-direct',
+        slackTeamName: 'Slack Webhook',
+        accessToken: '',
+        isActive: true,
+      },
+    });
+    logger.info(`Saved Slack webhook for user ${userId}`);
+    return connection;
   }
 
   /**

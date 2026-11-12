@@ -12,25 +12,25 @@ export const StatsOverview: React.FC<StatsOverviewProps> = ({ stats }) => {
       title: 'Total Campaigns',
       value: stats?.totalBatches ?? 0,
       icon: Mail,
-      color: 'border-slate-800 text-blue-400',
+      iconColor: 'text-blue-400',
     },
     {
-      title: 'Scheduled',
+      title: 'Scheduled Jobs',
       value: stats?.scheduledJobs ?? 0,
       icon: Clock,
-      color: 'border-slate-800 text-amber-400',
+      iconColor: 'text-amber-400',
     },
     {
       title: 'Delivered',
       value: stats?.completedJobs ?? 0,
       icon: CheckCircle2,
-      color: 'border-slate-800 text-emerald-400',
+      iconColor: 'text-emerald-400',
     },
     {
-      title: 'Rescheduled',
+      title: 'Rate-Limited / Failed',
       value: (stats?.rateLimitedRecipients ?? 0) + (stats?.failedJobs ?? 0),
       icon: AlertTriangle,
-      color: 'border-slate-800 text-purple-400',
+      iconColor: 'text-rose-400',
     },
   ];
 
@@ -41,14 +41,14 @@ export const StatsOverview: React.FC<StatsOverviewProps> = ({ stats }) => {
         return (
           <div
             key={i}
-            className="p-5 rounded-2xl bg-[#111622] border border-slate-800 shadow-md flex items-center justify-between"
+            className="p-4 rounded-xl bg-[#0f1422] border border-slate-800 shadow-sm flex items-center justify-between"
           >
             <div>
-              <p className="text-xs font-medium text-slate-400">{card.title}</p>
-              <h3 className="text-2xl font-bold text-white mt-1">{card.value}</h3>
+              <p className="text-[11px] font-medium text-slate-400 uppercase tracking-wider">{card.title}</p>
+              <h3 className="text-2xl font-bold text-white mt-1 font-mono">{card.value}</h3>
             </div>
-            <div className="p-3 rounded-xl bg-slate-900 border border-slate-800 text-slate-300">
-              <Icon className="w-5 h-5" />
+            <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800">
+              <Icon className={`w-4 h-4 ${card.iconColor}`} />
             </div>
           </div>
         );

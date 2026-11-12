@@ -40,6 +40,7 @@ const envSchema = z.object({
   SLACK_CLIENT_ID: z.string().optional().default(''),
   SLACK_CLIENT_SECRET: z.string().optional().default(''),
   SLACK_REDIRECT_URI: z.string().default('http://localhost:5000/api/slack/callback'),
+  SLACK_WEBHOOK_URL: z.string().optional().default(''),
 
   ETHEREAL_USER: z.string().optional().default(''),
   ETHEREAL_PASS: z.string().optional().default(''),

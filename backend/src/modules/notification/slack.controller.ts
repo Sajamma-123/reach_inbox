@@ -98,6 +98,34 @@ export const slackController = {
   },
 
   /**
+   * Saves custom Slack Incoming Webhook
+   */
+  async saveWebhook(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) {
+        throw new AppError('Unauthorized', 401);
+      }
+      const { webhookUrl, channelName } = req.body;
+      if (!webhookUrl || typeof webhookUrl !== 'string' || !webhookUrl.startsWith('https://hooks.slack.com/')) {
+        throw new AppError('Please provide a valid Slack Webhook URL starting with https://hooks.slack.com/', 400);
+      }
+
+      const connection = await slackService.saveWebhook(req.user.userId, webhookUrl, channelName || '#general');
+      res.json({
+        success: true,
+        message: 'Slack webhook saved and activated successfully!',
+        connection: {
+          slackTeamName: connection.slackTeamName,
+          channelName: connection.channelName,
+          isActive: connection.isActive,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  /**
    * Dispatches a test rate limit notification to verify connection
    */
   async sendTestNotification(req: Request, res: Response, next: NextFunction) {
@@ -117,8 +145,8 @@ export const slackController = {
         success: true,
         sent,
         message: sent
-          ? 'Test notification posted to Slack!'
-          : 'Could not send test notification. Check if Slack is connected.',
+          ? 'Test notification successfully posted to Slack!'
+          : 'Could not send test notification. Please verify your Slack Webhook URL or connect Slack.',
       });
     } catch (error) {
       next(error);

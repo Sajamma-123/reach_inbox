@@ -73,13 +73,13 @@ model Sender {
 
 model Email {
   id           String       @id @default(cuid())
-  userId       String
-  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  senderId     String
-  sender       Sender       @relation(fields: [senderId], references: [id], onDelete: Restrict)
+  userId       String?
+  user         User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  senderId     String?
+  sender       Sender?      @relation(fields: [senderId], references: [id], onDelete: SetNull)
   subject      String
   body         String       @db.Text
-  scheduledAt  DateTime
+  scheduledAt  DateTime     @default(now())
   delaySeconds Int          @default(2)
   hourlyLimit  Int          @default(100)
   status       EmailStatus  @default(SCHEDULED)
@@ -89,6 +89,7 @@ model Email {
   recipients   EmailRecipient[]
   jobs         EmailJob[]
 
+  @@map("email_data")
   @@index([userId])
   @@index([senderId])
   @@index([status])

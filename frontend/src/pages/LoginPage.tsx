@@ -7,25 +7,25 @@ export const LoginPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#070a0f] flex flex-col justify-center items-center px-4">
-      <div className="w-full max-w-sm bg-[#0f141e] border border-slate-800 rounded-3xl p-8 shadow-2xl text-center">
+    <div className="min-h-screen bg-[#090d16] flex flex-col justify-center items-center px-4">
+      <div className="w-full max-w-sm bg-[#0f1422] border border-slate-800 rounded-2xl p-8 shadow-xl text-center">
         {/* Brand header */}
-        <div className="w-12 h-12 rounded-2xl bg-brand-600 mx-auto flex items-center justify-center mb-5">
-          <Mail className="w-6 h-6 text-white" />
+        <div className="w-10 h-10 rounded-xl bg-blue-600 mx-auto flex items-center justify-center mb-4">
+          <Mail className="w-5 h-5 text-white" />
         </div>
 
-        <h1 className="text-xl font-bold tracking-tight text-white mb-1.5">
-          Reach<span className="text-brand-500">Inbox</span>
+        <h1 className="text-lg font-semibold tracking-tight text-white mb-1">
+          Reach<span className="text-blue-500">Inbox</span>
         </h1>
-        <p className="text-xs text-slate-400 mb-8">
-          Sign in to manage and schedule your email campaigns.
+        <p className="text-xs text-slate-400 mb-6">
+          Sign in to schedule and track email campaigns with rate pacing.
         </p>
 
         {/* Action Button */}
         <div>
           <button
             onClick={handleGoogleLogin}
-            className="w-full py-3 px-4 rounded-xl bg-white hover:bg-slate-100 text-slate-900 font-semibold text-xs shadow-md flex items-center justify-center gap-3 transition-all active:scale-[0.99]"
+            className="w-full py-2.5 px-4 rounded-lg bg-white hover:bg-slate-100 text-slate-900 font-medium text-xs shadow-sm flex items-center justify-center gap-2.5 transition-colors active:scale-[0.99]"
           >
             <svg className="w-4 h-4" viewBox="0 0 24 24">
               <path

@@ -5,10 +5,11 @@ import { ScheduleBatchDTO } from '../scheduler/scheduler.types.js';
 import { parseRecipientsFromBuffer } from '../../utils/csvParser.js';
 import { mailerService } from '../worker/mailer.service.js';
 import { authService } from '../auth/auth.service.js';
+import { slackService } from '../notification/slack.service.js';
 import { AppError } from '../../middlewares/errorHandler.js';
 import { logger } from '../../utils/logger.js';
 
-// In-memory fallback stores when PostgreSQL / Redis are not running locally
+// In-memory fallback stores when PostgreSQL is unavailable
 const inMemoryBatches: any[] = [];
 const inMemoryJobs: any[] = [];
 
@@ -40,7 +41,13 @@ export const emailService = {
     const senderName = userProfile.name || userProfile.email.split('@')[0];
     const senderEmail = userProfile.email;
 
-    // If PostgreSQL and Redis are available, use full BullMQ distributed pipeline
+    const scheduledDate = new Date(data.scheduledAt);
+    const delaySeconds = data.delaySeconds || 2;
+    const hourlyLimit = data.hourlyLimit || 100;
+    const now = Date.now();
+    const initialDelay = Math.max(0, scheduledDate.getTime() - now);
+
+    // If PostgreSQL and Redis are both active, use full distributed BullMQ pipeline
     if (isDatabaseConnected && isRedisConnected) {
       return schedulerService.scheduleBatch(userId, {
         ...data,
@@ -48,14 +55,161 @@ export const emailService = {
       });
     }
 
-    // In-memory real campaign pipeline
-    logger.info(`Scheduling ${combinedRecipients.length} emails for user ${senderEmail}`);
+    // Direct PostgreSQL persistence into table "email_data" with async scheduler
+    if (isDatabaseConnected) {
+      try {
+        let sender = await prisma.sender.findFirst({ where: { userId } });
+        if (!sender) {
+          sender = await prisma.sender.create({
+            data: {
+              userId,
+              email: senderEmail,
+              name: senderName,
+              isDefault: true,
+            },
+          });
+        }
+
+        const emailRecord = await prisma.email.create({
+          data: {
+            userId,
+            senderId: sender.id,
+            subject: data.subject,
+            body: data.body,
+            scheduledAt: scheduledDate,
+            delaySeconds,
+            hourlyLimit,
+            status: 'SCHEDULED',
+            recipients: {
+              create: combinedRecipients.map((recip, idx) => ({
+                recipientEmail: recip,
+                sequenceIndex: idx,
+                status: 'PENDING',
+              })),
+            },
+          },
+          include: { recipients: true },
+        });
+
+        logger.info(`Persisted campaign to PostgreSQL "email_data" (id: ${emailRecord.id}) with ${combinedRecipients.length} recipients`);
+
+        // Create job records in PostgreSQL for each recipient
+        for (let i = 0; i < emailRecord.recipients.length; i++) {
+          const recip = emailRecord.recipients[i];
+          const recipientDelay = initialDelay + i * delaySeconds * 1000;
+          const plannedTime = new Date(now + recipientDelay);
+          const jobId = `job_${emailRecord.id}_${i}`;
+
+          await prisma.emailJob.create({
+            data: {
+              id: jobId,
+              emailId: emailRecord.id,
+              recipientId: recip.id,
+              status: 'DELAYED',
+              plannedExecutionTime: plannedTime,
+            },
+          });
+
+          // Schedule delivery
+          setTimeout(async () => {
+            try {
+              // Rate limit quota check
+              const oneHourAgo = new Date(Date.now() - 3600000);
+              const sentInPastHour = await prisma.emailJob.count({
+                where: {
+                  email: { senderId: sender!.id },
+                  status: 'COMPLETED',
+                  executedAt: { gte: oneHourAgo },
+                },
+              });
+
+              if (sentInPastHour >= hourlyLimit) {
+                logger.warn(`Hourly limit reached for ${senderEmail}: ${sentInPastHour}/${hourlyLimit}. Triggering Slack alert.`);
+                await slackService.sendRateLimitNotification(userId, {
+                  senderEmail,
+                  hourlyLimit,
+                  currentCount: sentInPastHour,
+                  resetInMs: 3600000,
+                });
+
+                await prisma.emailJob.update({
+                  where: { id: jobId },
+                  data: {
+                    status: 'RESCHEDULED',
+                    failureReason: `Hourly quota of ${hourlyLimit} reached. Automatically rescheduled.`,
+                    plannedExecutionTime: new Date(Date.now() + 3600000),
+                  },
+                });
+
+                await prisma.emailRecipient.update({
+                  where: { id: recip.id },
+                  data: { status: 'RATE_LIMITED' },
+                });
+                return;
+              }
+
+              // Send email via Ethereal SMTP
+              const delivery = await mailerService.sendEmail({
+                from: `"${senderName}" <${senderEmail}>`,
+                to: recip.recipientEmail,
+                subject: data.subject,
+                html: data.body,
+              });
+
+              await prisma.emailJob.update({
+                where: { id: jobId },
+                data: {
+                  status: 'COMPLETED',
+                  executedAt: new Date(),
+                  etherealPreviewUrl: delivery.previewUrl,
+                  etherealMessageId: delivery.messageId,
+                },
+              });
+
+              await prisma.emailRecipient.update({
+                where: { id: recip.id },
+                data: { status: 'SENT' },
+              });
+
+              logger.info(`Email delivered to ${recip.recipientEmail} | Preview: ${delivery.previewUrl}`);
+
+              const pendingCount = await prisma.emailRecipient.count({
+                where: { emailId: emailRecord.id, status: 'PENDING' },
+              });
+              if (pendingCount === 0) {
+                await prisma.email.update({
+                  where: { id: emailRecord.id },
+                  data: { status: 'COMPLETED' },
+                });
+              }
+            } catch (err: any) {
+              logger.error(`Delivery failed for ${recip.recipientEmail}:`, err.message);
+              await prisma.emailJob.update({
+                where: { id: jobId },
+                data: { status: 'FAILED', failureReason: err.message },
+              });
+              await prisma.emailRecipient.update({
+                where: { id: recip.id },
+                data: { status: 'FAILED' },
+              });
+            }
+          }, Math.min(recipientDelay, 60000));
+        }
+
+        return {
+          emailId: emailRecord.id,
+          totalScheduled: combinedRecipients.length,
+          scheduledAt: scheduledDate,
+          firstJobExecutionTime: new Date(now + initialDelay),
+        };
+      } catch (dbErr: any) {
+        logger.error('Database schedule error:', dbErr.message);
+      }
+    }
+
+    // In-memory fallback if database is offline
+    logger.info(`Scheduling ${combinedRecipients.length} emails in-memory for user ${senderEmail}`);
     const batchId = `batch_${Date.now()}`;
-    const scheduledDate = new Date(data.scheduledAt);
-    const delaySeconds = data.delaySeconds || 2;
-    const hourlyLimit = data.hourlyLimit || 100;
-    const now = Date.now();
-    const initialDelay = Math.max(0, scheduledDate.getTime() - now);
 
     const newBatch = {
       id: batchId,
@@ -98,7 +252,6 @@ export const emailService = {
 
       inMemoryJobs.unshift(jobRecord);
 
-      // Dispatch to Ethereal SMTP when due
       setTimeout(async () => {
         try {
           const delivery = await mailerService.sendEmail({
@@ -111,10 +264,8 @@ export const emailService = {
           jobRecord.status = 'COMPLETED';
           jobRecord.executedAt = new Date().toISOString();
           jobRecord.etherealPreviewUrl = delivery.previewUrl;
-          logger.info(`Email delivered to ${recipientEmail} | Preview: ${delivery.previewUrl}`);
         } catch (err: any) {
           jobRecord.status = 'FAILED';
-          logger.error(`Delivery failed for ${recipientEmail}:`, err.message);
         }
       }, Math.min(recipientDelay, 60000));
     });
@@ -131,7 +282,7 @@ export const emailService = {
     if (isDatabaseConnected) {
       try {
         return await prisma.email.findMany({
-          where: { userId },
+          where: { OR: [{ userId }, { userId: null }] },
           include: {
             sender: { select: { email: true, name: true } },
             _count: { select: { recipients: true, jobs: true } },
@@ -142,14 +293,14 @@ export const emailService = {
         logger.warn('Prisma findMany fallback for emails:', err.message);
       }
     }
-    return inMemoryBatches.filter((b) => b.userId === userId);
+    return inMemoryBatches.filter((b) => b.userId === userId || !b.userId);
   },
 
   async getEmailDetails(userId: string, emailId: string) {
     if (isDatabaseConnected) {
       try {
         const email = await prisma.email.findFirst({
-          where: { id: emailId, userId },
+          where: { id: emailId, OR: [{ userId }, { userId: null }] },
           include: {
             sender: true,
             recipients: {
@@ -165,7 +316,7 @@ export const emailService = {
         logger.warn('Prisma getEmailDetails fallback:', err.message);
       }
     }
-    const batch = inMemoryBatches.find((b) => b.id === emailId && b.userId === userId);
+    const batch = inMemoryBatches.find((b) => b.id === emailId);
     if (!batch) throw new AppError('Email batch not found', 404);
     return batch;
   },
@@ -177,7 +328,7 @@ export const emailService = {
         const [jobs, total] = await Promise.all([
           prisma.emailJob.findMany({
             where: {
-              email: { userId },
+              email: { OR: [{ userId }, { userId: null }] },
               status: { in: ['DELAYED', 'WAITING', 'RESCHEDULED'] },
             },
             include: {
@@ -195,13 +346,13 @@ export const emailService = {
           }),
           prisma.emailJob.count({
             where: {
-              email: { userId },
+              email: { OR: [{ userId }, { userId: null }] },
               status: { in: ['DELAYED', 'WAITING', 'RESCHEDULED'] },
             },
           }),
         ]);
 
-        return { jobs, total, page, totalPages: Math.ceil(total / limit) };
+        return { jobs, total, page, totalPages: Math.ceil(total / limit) || 1 };
       } catch (err: any) {
         logger.warn('Prisma getScheduledJobs fallback:', err.message);
       }
@@ -223,7 +374,7 @@ export const emailService = {
         const [jobs, total] = await Promise.all([
           prisma.emailJob.findMany({
             where: {
-              email: { userId },
+              email: { OR: [{ userId }, { userId: null }] },
               status: 'COMPLETED',
             },
             include: {
@@ -240,11 +391,11 @@ export const emailService = {
             take: limit,
           }),
           prisma.emailJob.count({
-            where: { email: { userId }, status: 'COMPLETED' },
+            where: { email: { OR: [{ userId }, { userId: null }] }, status: 'COMPLETED' },
           }),
         ]);
 
-        return { jobs, total, page, totalPages: Math.ceil(total / limit) };
+        return { jobs, total, page, totalPages: Math.ceil(total / limit) || 1 };
       } catch (err: any) {
         logger.warn('Prisma getSentJobs fallback:', err.message);
       }
@@ -264,21 +415,21 @@ export const emailService = {
       try {
         const [totalBatches, scheduledJobs, completedJobs, failedJobs, rateLimitedRecipients] =
           await Promise.all([
-            prisma.email.count({ where: { userId } }),
+            prisma.email.count({ where: { OR: [{ userId }, { userId: null }] } }),
             prisma.emailJob.count({
               where: {
-                email: { userId },
+                email: { OR: [{ userId }, { userId: null }] },
                 status: { in: ['DELAYED', 'WAITING', 'RESCHEDULED'] },
               },
             }),
             prisma.emailJob.count({
-              where: { email: { userId }, status: 'COMPLETED' },
+              where: { email: { OR: [{ userId }, { userId: null }] }, status: 'COMPLETED' },
             }),
             prisma.emailJob.count({
-              where: { email: { userId }, status: 'FAILED' },
+              where: { email: { OR: [{ userId }, { userId: null }] }, status: 'FAILED' },
             }),
             prisma.emailRecipient.count({
-              where: { email: { userId }, status: 'RATE_LIMITED' },
+              where: { email: { OR: [{ userId }, { userId: null }] }, status: 'RATE_LIMITED' },
             }),
           ]);
 

@@ -84,7 +84,7 @@ export const createEmailWorker = () => {
         );
 
         // Trigger Slack Notification
-        await slackService.sendRateLimitNotification(recipient.email.userId, {
+        await slackService.sendRateLimitNotification(recipient.email.userId || '', {
           senderEmail,
           hourlyLimit,
           currentCount: rateLimitResult.currentCount,
@@ -138,7 +138,7 @@ export const createEmailWorker = () => {
         // 5. Update Elasticsearch Document
         await searchService.indexEmail({
           emailId,
-          userId: recipient.email.userId,
+          userId: recipient.email.userId || '',
           senderEmail,
           subject,
           body,
