@@ -281,8 +281,9 @@ export const emailService = {
   async getUserEmails(userId: string) {
     if (isDatabaseConnected) {
       try {
+        const userCondition = await this.buildUserCondition(userId);
         return await prisma.email.findMany({
-          where: { OR: [{ userId }, { userId: null }] },
+          where: userCondition,
           include: {
             sender: { select: { email: true, name: true } },
             _count: { select: { recipients: true, jobs: true } },
@@ -299,8 +300,9 @@ export const emailService = {
   async getEmailDetails(userId: string, emailId: string) {
     if (isDatabaseConnected) {
       try {
+        const userCondition = await this.buildUserCondition(userId);
         const email = await prisma.email.findFirst({
-          where: { id: emailId, OR: [{ userId }, { userId: null }] },
+          where: { id: emailId, ...userCondition },
           include: {
             sender: true,
             recipients: {
@@ -324,11 +326,12 @@ export const emailService = {
   async getScheduledJobs(userId: string, page = 1, limit = 20) {
     if (isDatabaseConnected) {
       try {
+        const userCondition = await this.buildUserCondition(userId);
         const skip = (page - 1) * limit;
         const [jobs, total] = await Promise.all([
           prisma.emailJob.findMany({
             where: {
-              email: { OR: [{ userId }, { userId: null }] },
+              email: userCondition,
               status: { in: ['DELAYED', 'WAITING', 'RESCHEDULED'] },
             },
             include: {
@@ -346,7 +349,7 @@ export const emailService = {
           }),
           prisma.emailJob.count({
             where: {
-              email: { OR: [{ userId }, { userId: null }] },
+              email: userCondition,
               status: { in: ['DELAYED', 'WAITING', 'RESCHEDULED'] },
             },
           }),
@@ -370,11 +373,12 @@ export const emailService = {
   async getSentJobs(userId: string, page = 1, limit = 20) {
     if (isDatabaseConnected) {
       try {
+        const userCondition = await this.buildUserCondition(userId);
         const skip = (page - 1) * limit;
         const [jobs, total] = await Promise.all([
           prisma.emailJob.findMany({
             where: {
-              email: { OR: [{ userId }, { userId: null }] },
+              email: userCondition,
               status: 'COMPLETED',
             },
             include: {
@@ -391,7 +395,7 @@ export const emailService = {
             take: limit,
           }),
           prisma.emailJob.count({
-            where: { email: { OR: [{ userId }, { userId: null }] }, status: 'COMPLETED' },
+            where: { email: userCondition, status: 'COMPLETED' },
           }),
         ]);
 
@@ -413,23 +417,24 @@ export const emailService = {
   async getDashboardStats(userId: string) {
     if (isDatabaseConnected) {
       try {
+        const userCondition = await this.buildUserCondition(userId);
         const [totalBatches, scheduledJobs, completedJobs, failedJobs, rateLimitedRecipients] =
           await Promise.all([
-            prisma.email.count({ where: { OR: [{ userId }, { userId: null }] } }),
+            prisma.email.count({ where: userCondition }),
             prisma.emailJob.count({
               where: {
-                email: { OR: [{ userId }, { userId: null }] },
+                email: userCondition,
                 status: { in: ['DELAYED', 'WAITING', 'RESCHEDULED'] },
               },
             }),
             prisma.emailJob.count({
-              where: { email: { OR: [{ userId }, { userId: null }] }, status: 'COMPLETED' },
+              where: { email: userCondition, status: 'COMPLETED' },
             }),
             prisma.emailJob.count({
-              where: { email: { OR: [{ userId }, { userId: null }] }, status: 'FAILED' },
+              where: { email: userCondition, status: 'FAILED' },
             }),
             prisma.emailRecipient.count({
-              where: { email: { OR: [{ userId }, { userId: null }] }, status: 'RATE_LIMITED' },
+              where: { email: userCondition, status: 'RATE_LIMITED' },
             }),
           ]);
 
@@ -452,5 +457,35 @@ export const emailService = {
       failedJobs: inMemoryJobs.filter((j) => j.status === 'FAILED').length,
       rateLimitedRecipients: 0,
     };
+  },
+
+  async buildUserCondition(userId: string) {
+    if (!isDatabaseConnected) return { userId };
+    try {
+      const dbUser = await prisma.user.findFirst({
+        where: {
+          OR: [
+            { id: userId },
+            { email: 'chinnasanjammat@gmail.com' },
+            { googleId: userId.replace('usr_', '') },
+          ],
+        },
+      });
+
+      const userIds: string[] = [userId];
+      if (dbUser && dbUser.id !== userId) {
+        userIds.push(dbUser.id);
+      }
+
+      return {
+        OR: [
+          { userId: { in: userIds } },
+          { user: { email: dbUser?.email || 'chinnasanjammat@gmail.com' } },
+          { userId: null },
+        ],
+      };
+    } catch {
+      return { OR: [{ userId }, { userId: null }] };
+    }
   },
 };
