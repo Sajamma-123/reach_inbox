@@ -278,32 +278,5 @@ npm run frontend:dev
 
 ---
 
-## 🧪 Testing Scenarios & Verification
 
-### Scenario Test 1: Compose with CSV & Delayed Pacing
-1. Log in via **Sign in with Google** with your authenticated Google account.
-2. Click **New Campaign**.
-3. Upload a sample CSV containing email addresses (or type them manually).
-4. Set Scheduled Start, Delay (e.g. 2s), and Hourly Limit (e.g. 50).
-5. Click **Schedule Campaign**. All records are persisted to PostgreSQL table `email_data`.
-6. Inspect in pgAdmin: `SELECT * FROM "email_data";` to verify records in real-time.
-7. Navigate to **Scheduled Queue** and observe the staggered execution timestamps.
-8. When due, watch jobs transition to **Sent & Delivered** and click **Open in Ethereal** to inspect the live delivered email.
 
-### Scenario Test 2: Distributed Hourly Rate Limiting
-1. Compose a campaign with 5 recipients.
-2. Set Hourly Limit = 2.
-3. Observe the first 2 emails execute successfully.
-4. Observe the 3rd, 4th, and 5th emails automatically transition to `RESCHEDULED` with the exact delay until the next hour window.
-5. If Slack is connected, inspect the incoming rich rate limit alert in your Slack channel!
-
----
-
-## 📹 5-Minute Demonstration Plan
-
-1. **Minute 0:00 - 0:45**: Architecture overview (BullMQ sorted set heap, Redis atomic Lua rate limiter, Prisma PostgreSQL schema).
-2. **Minute 0:45 - 1:30**: Google OAuth authentication & demo login walkthrough.
-3. **Minute 1:30 - 2:30**: Email composition with CSV upload, delay pacing (e.g. 2s), and live detected recipient count.
-4. **Minute 2:30 - 3:30**: Live execution verification in Ethereal Email and the `/admin/queues` Bull-Board monitor.
-5. **Minute 3:30 - 4:15**: Rate limit test: trigger an hourly quota, show job rescheduling and live Slack alert.
-6. **Minute 4:15 - 5:00**: Server restart resilience test: kill the backend process while jobs are delayed, reboot, and demonstrate zero lost jobs.
