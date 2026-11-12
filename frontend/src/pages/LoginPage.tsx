@@ -1,22 +1,9 @@
-import React, { useState } from 'react';
-import { useAuth } from '../context/AuthContext';
-import { Mail, Loader2, Play } from 'lucide-react';
+import React from 'react';
+import { Mail } from 'lucide-react';
 
 export const LoginPage: React.FC = () => {
-  const { loginDemo } = useAuth();
-  const [demoLoading, setDemoLoading] = useState(false);
-
   const handleGoogleLogin = () => {
     window.location.href = '/api/auth/google';
-  };
-
-  const handleDemoLogin = async () => {
-    setDemoLoading(true);
-    try {
-      await loginDemo();
-    } finally {
-      setDemoLoading(false);
-    }
   };
 
   return (
@@ -34,9 +21,8 @@ export const LoginPage: React.FC = () => {
           Sign in to manage and schedule your email campaigns.
         </p>
 
-        {/* Action Buttons */}
-        <div className="space-y-3">
-          {/* Google OAuth Button */}
+        {/* Action Button */}
+        <div>
           <button
             onClick={handleGoogleLogin}
             className="w-full py-3 px-4 rounded-xl bg-white hover:bg-slate-100 text-slate-900 font-semibold text-xs shadow-md flex items-center justify-center gap-3 transition-all active:scale-[0.99]"
@@ -60,20 +46,6 @@ export const LoginPage: React.FC = () => {
               />
             </svg>
             <span>Sign in with Google</span>
-          </button>
-
-          {/* Quick Demo Login */}
-          <button
-            onClick={handleDemoLogin}
-            disabled={demoLoading}
-            className="w-full py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-700/80 border border-slate-700 text-slate-200 font-semibold text-xs flex items-center justify-center gap-2 transition-all active:scale-[0.99] disabled:opacity-50"
-          >
-            {demoLoading ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin text-brand-400" />
-            ) : (
-              <Play className="w-3.5 h-3.5 text-brand-400 fill-brand-400" />
-            )}
-            <span>{demoLoading ? 'Logging In...' : 'Quick Demo Login'}</span>
           </button>
         </div>
       </div>

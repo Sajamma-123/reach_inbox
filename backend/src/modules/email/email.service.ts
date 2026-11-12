@@ -4,6 +4,7 @@ import { schedulerService } from '../scheduler/scheduler.service.js';
 import { ScheduleBatchDTO } from '../scheduler/scheduler.types.js';
 import { parseRecipientsFromBuffer } from '../../utils/csvParser.js';
 import { mailerService } from '../worker/mailer.service.js';
+import { authService } from '../auth/auth.service.js';
 import { AppError } from '../../middlewares/errorHandler.js';
 import { logger } from '../../utils/logger.js';
 
@@ -34,6 +35,11 @@ export const emailService = {
       throw new AppError('No recipients provided. Please add emails or upload a CSV file.', 400);
     }
 
+    // Resolve real user profile
+    const userProfile = await authService.getCurrentUserProfile(userId);
+    const senderName = userProfile.name || userProfile.email.split('@')[0];
+    const senderEmail = userProfile.email;
+
     // If PostgreSQL and Redis are available, use full BullMQ distributed pipeline
     if (isDatabaseConnected && isRedisConnected) {
       return schedulerService.scheduleBatch(userId, {
@@ -42,8 +48,8 @@ export const emailService = {
       });
     }
 
-    // In-memory local fallback pipeline (allows testing UI without external Docker services)
-    logger.info(`[In-Memory Engine] Scheduling ${combinedRecipients.length} emails for user ${userId}`);
+    // In-memory real campaign pipeline
+    logger.info(`Scheduling ${combinedRecipients.length} emails for user ${senderEmail}`);
     const batchId = `batch_${Date.now()}`;
     const scheduledDate = new Date(data.scheduledAt);
     const delaySeconds = data.delaySeconds || 2;
@@ -54,8 +60,8 @@ export const emailService = {
     const newBatch = {
       id: batchId,
       userId,
-      senderId: 'snd_default',
-      sender: { email: 'developer@reachinbox.ai', name: 'ReachInbox Demo Sender' },
+      senderId: `snd_${userId}`,
+      sender: { email: senderEmail, name: senderName },
       subject: data.subject,
       body: data.body,
       scheduledAt: scheduledDate.toISOString(),
@@ -86,17 +92,17 @@ export const emailService = {
         recipient: { recipientEmail },
         email: {
           subject: data.subject,
-          sender: { email: 'developer@reachinbox.ai', name: 'ReachInbox Demo Sender' },
+          sender: { email: senderEmail, name: senderName },
         },
       };
 
       inMemoryJobs.unshift(jobRecord);
 
-      // In-memory simulation: dispatch to Ethereal SMTP when due
+      // Dispatch to Ethereal SMTP when due
       setTimeout(async () => {
         try {
           const delivery = await mailerService.sendEmail({
-            from: '"ReachInbox Demo" <developer@reachinbox.ai>',
+            from: `"${senderName}" <${senderEmail}>`,
             to: recipientEmail,
             subject: data.subject,
             html: data.body,
@@ -105,12 +111,12 @@ export const emailService = {
           jobRecord.status = 'COMPLETED';
           jobRecord.executedAt = new Date().toISOString();
           jobRecord.etherealPreviewUrl = delivery.previewUrl;
-          logger.info(`[In-Memory Worker] Delivered to ${recipientEmail} | Preview: ${delivery.previewUrl}`);
+          logger.info(`Email delivered to ${recipientEmail} | Preview: ${delivery.previewUrl}`);
         } catch (err: any) {
           jobRecord.status = 'FAILED';
-          logger.error(`[In-Memory Worker] Delivery failed for ${recipientEmail}:`, err.message);
+          logger.error(`Delivery failed for ${recipientEmail}:`, err.message);
         }
-      }, Math.min(recipientDelay, 60000)); // Cap to 60s for immediate local testing if desired
+      }, Math.min(recipientDelay, 60000));
     });
 
     return {

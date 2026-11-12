@@ -5,7 +5,6 @@ import { User } from '../types';
 interface AuthContextType {
   user: User | null;
   loading: boolean;
-  loginDemo: () => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
@@ -18,7 +17,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const refreshUser = async () => {
     try {
-      const res = await api.get('/auth/me', { timeout: 3000 });
+      // Check if URL has token from Google OAuth callback
+      const params = new URLSearchParams(window.location.search);
+      const urlToken = params.get('token');
+      if (urlToken) {
+        localStorage.setItem('reachinbox_token', urlToken);
+        // Clean URL parameter without reloading
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+
+      const res = await api.get('/auth/me', { timeout: 4000 });
       if (res.data?.success && res.data?.user) {
         setUser(res.data.user);
       } else {
@@ -35,45 +43,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     refreshUser();
   }, []);
 
-  const loginDemo = async () => {
-    setLoading(true);
-    try {
-      const res = await api.post('/auth/demo', {}, { timeout: 4000 });
-      if (res.data?.success) {
-        if (res.data.user) {
-          setUser(res.data.user);
-        } else {
-          await refreshUser();
-        }
-      }
-    } catch (err: any) {
-      console.error('Demo login failed:', err);
-      // Fallback local demo user
-      setUser({
-        id: 'usr_demo_reachinbox',
-        email: 'developer@reachinbox.ai',
-        name: 'ReachInbox Demo User',
-        avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
-        googleId: 'demo_reachinbox_123',
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const logout = async () => {
     setLoading(true);
     try {
       await api.post('/auth/logout');
     } catch {
     } finally {
+      localStorage.removeItem('reachinbox_token');
       setUser(null);
       setLoading(false);
     }
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, loginDemo, logout, refreshUser }}>
+    <AuthContext.Provider value={{ user, loading, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

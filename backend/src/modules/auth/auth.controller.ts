@@ -40,33 +40,8 @@ export const authController = {
         maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
       });
 
-      // Redirect user to React Dashboard
-      res.redirect(`${env.CLIENT_URL}/dashboard?login=success`);
-    } catch (error) {
-      next(error);
-    }
-  },
-
-  /**
-   * Demo / Fast Login for instant evaluation without Google account popup
-   */
-  async handleDemoLogin(_req: Request, res: Response, next: NextFunction) {
-    try {
-      const { token, user } = await authService.getOrCreateDemoUser();
-
-      res.cookie('reachinbox_token', token, {
-        httpOnly: true,
-        secure: env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        maxAge: 7 * 24 * 60 * 60 * 1000,
-      });
-
-      res.json({
-        success: true,
-        message: 'Logged in as Demo User',
-        token,
-        user,
-      });
+      // Redirect user to React Dashboard with token for cross-port persistence
+      res.redirect(`${env.CLIENT_URL}/?token=${token}`);
     } catch (error) {
       next(error);
     }

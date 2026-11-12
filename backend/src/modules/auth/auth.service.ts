@@ -18,26 +18,13 @@ const googleClient = new OAuth2Client({
   redirectUri: env.GOOGLE_CALLBACK_URL,
 });
 
-// In-memory demo profile fallback if DB is not yet running
-const demoProfileFallback = {
-  id: 'usr_demo_reachinbox',
-  email: 'developer@reachinbox.ai',
-  name: 'ReachInbox Demo User',
-  avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
-  googleId: 'demo_reachinbox_123',
-  senders: [
-    {
-      id: 'snd_default',
-      userId: 'usr_demo_reachinbox',
-      email: 'developer@reachinbox.ai',
-      name: 'ReachInbox Demo Sender',
-      isDefault: true,
-    },
-  ],
-  slackConnection: null,
-};
+// Real in-memory user registry to ensure user data remains consistent across sessions
+const realUsersMap = new Map<string, any>();
 
 export const authService = {
+  /**
+   * Generates Google OAuth 2.0 Consent URL
+   */
   getGoogleAuthUrl(): string {
     const scopes = [
       'https://www.googleapis.com/auth/userinfo.profile',
@@ -51,6 +38,9 @@ export const authService = {
     });
   },
 
+  /**
+   * Exchanges Google Auth Code for real Google profile & issues session JWT
+   */
   async handleGoogleCallback(code: string): Promise<{ token: string; user: UserSessionPayload }> {
     try {
       const { tokens } = await googleClient.getToken(code);
@@ -75,21 +65,25 @@ export const authService = {
       const name = payload.name || email.split('@')[0];
       const avatarUrl = payload.picture || '';
 
-      let userId = `usr_${googleId.slice(0, 10)}`;
+      let userId = `usr_${googleId.slice(0, 12)}`;
 
       if (isDatabaseConnected) {
-        const user = await prisma.user.upsert({
-          where: { googleId },
-          update: { name, avatarUrl, updatedAt: new Date() },
-          create: { email, name, googleId, avatarUrl },
-        });
-        userId = user.id;
-
-        const defaultSender = await prisma.sender.findFirst({ where: { userId: user.id } });
-        if (!defaultSender) {
-          await prisma.sender.create({
-            data: { userId: user.id, email: user.email, name: user.name || 'Default Sender', isDefault: true },
+        try {
+          const user = await prisma.user.upsert({
+            where: { googleId },
+            update: { name, avatarUrl, updatedAt: new Date() },
+            create: { email, name, googleId, avatarUrl },
           });
+          userId = user.id;
+
+          const defaultSender = await prisma.sender.findFirst({ where: { userId: user.id } });
+          if (!defaultSender) {
+            await prisma.sender.create({
+              data: { userId: user.id, email: user.email, name: user.name || name, isDefault: true },
+            });
+          }
+        } catch (dbErr: any) {
+          logger.warn('Database upsert warning:', dbErr.message);
         }
       }
 
@@ -100,6 +94,27 @@ export const authService = {
         avatarUrl,
       };
 
+      // Store real authenticated profile in memory
+      realUsersMap.set(userId, {
+        id: userId,
+        email,
+        name,
+        avatarUrl,
+        googleId,
+        senders: [
+          {
+            id: `snd_${userId}`,
+            userId,
+            email,
+            name,
+            isDefault: true,
+          },
+        ],
+        slackConnection: null,
+      });
+
+      logger.info(` Google user authenticated: ${name} (${email})`);
+
       const token = this.generateSessionToken(sessionPayload);
       return { token, user: sessionPayload };
     } catch (error: any) {
@@ -108,51 +123,16 @@ export const authService = {
     }
   },
 
-  async getOrCreateDemoUser(): Promise<{ token: string; user: UserSessionPayload }> {
-    const demoEmail = 'developer@reachinbox.ai';
-    const demoGoogleId = 'reachinbox_demo_account_12345';
-    let userId = 'usr_demo_reachinbox';
-
-    if (isDatabaseConnected) {
-      try {
-        const user = await prisma.user.upsert({
-          where: { googleId: demoGoogleId },
-          update: {},
-          create: {
-            email: demoEmail,
-            name: 'ReachInbox Demo User',
-            googleId: demoGoogleId,
-            avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
-          },
-        });
-        userId = user.id;
-
-        const existingSender = await prisma.sender.findFirst({ where: { userId: user.id } });
-        if (!existingSender) {
-          await prisma.sender.create({
-            data: { userId: user.id, email: user.email, name: user.name || 'Demo Sender', isDefault: true },
-          });
-        }
-      } catch (err: any) {
-        logger.warn('Prisma upsert fallback for demo user:', err.message);
-      }
-    }
-
-    const sessionPayload: UserSessionPayload = {
-      userId,
-      email: demoEmail,
-      name: 'ReachInbox Demo User',
-      avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
-    };
-
-    const token = this.generateSessionToken(sessionPayload);
-    return { token, user: sessionPayload };
-  },
-
+  /**
+   * Generates signed JWT for authenticated sessions
+   */
   generateSessionToken(payload: UserSessionPayload): string {
     return jwt.sign(payload, env.JWT_SECRET, { expiresIn: '7d' });
   },
 
+  /**
+   * Decodes and validates JWT token
+   */
   verifySessionToken(token: string): UserSessionPayload {
     try {
       return jwt.verify(token, env.JWT_SECRET) as UserSessionPayload;
@@ -161,6 +141,9 @@ export const authService = {
     }
   },
 
+  /**
+   * Fetch current user profile with their real Google info and sender profile
+   */
   async getCurrentUserProfile(userId: string) {
     if (isDatabaseConnected) {
       try {
@@ -181,14 +164,15 @@ export const authService = {
         });
         if (user) return user;
       } catch (err: any) {
-        logger.warn('Prisma findUnique fallback for profile:', err.message);
+        logger.warn('Prisma profile query warning:', err.message);
       }
     }
 
-    // Return in-memory fallback user
-    return {
-      ...demoProfileFallback,
-      id: userId,
-    };
+    const cachedUser = realUsersMap.get(userId);
+    if (cachedUser) {
+      return cachedUser;
+    }
+
+    throw new AppError('User profile not found. Please log in with Google.', 401);
   },
 };
